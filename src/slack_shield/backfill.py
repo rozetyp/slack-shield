@@ -182,12 +182,15 @@ class Backfill:
             self.state.total_messages += len(page.messages)
             window.cursor = page.next_cursor
             self._save()  # checkpoint after every successful page
+            # Heavy pagination: split future windows once, the moment we cross
+            # the threshold. Using == (not >=) so we only fire once per window
+            # rather than re-splitting on every subsequent page.
+            if window.pages == self._shrink_threshold:
+                self._shrink_remaining_windows(idx)
             if not page.has_more:
                 window.done = True
                 window.cursor = None
                 return
-            if window.pages >= self._shrink_threshold:
-                self._shrink_remaining_windows(idx)
 
     async def _fetch_page(self, window: Window) -> HistoryPage:
         while True:
