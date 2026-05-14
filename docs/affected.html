@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Are you affected by Slack's 1 req/min rate limit?</title>
+<meta name="description" content="A 30-second diagnostic for Slack's 2025/2026 rate-limit change to conversations.history.">
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #666;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e3e3e3;
+    --accent: #4a154b;        /* Slack aubergine */
+    --good: #2e7d32;
+    --warn: #ed6c02;
+    --bad: #c62828;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  .container { max-width: 720px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 1.9rem; margin: 0 0 0.4em; }
+  .lede { color: var(--muted); margin-bottom: 2em; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 0.6em; font-size: 1.05rem; }
+  .options { display: flex; flex-direction: column; gap: 8px; }
+  label.opt {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 6px; cursor: pointer; background: var(--bg);
+  }
+  label.opt:hover { border-color: var(--accent); }
+  label.opt input { margin-top: 4px; }
+  label.opt span small { color: var(--muted); display: block; }
+  input[type="number"], input[type="text"] {
+    font: inherit; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 6px; width: 100%;
+  }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  button {
+    font: inherit; font-weight: 600; padding: 12px 22px; border: 0;
+    background: var(--accent); color: white; border-radius: 6px;
+    cursor: pointer;
+  }
+  button.secondary { background: #444; }
+  button:hover { filter: brightness(1.1); }
+  #result { display: none; }
+  .verdict {
+    font-size: 1.25rem; font-weight: 600; margin: 0 0 0.6em;
+    padding-left: 14px; border-left: 4px solid var(--muted);
+  }
+  .verdict.affected { color: var(--bad); border-color: var(--bad); }
+  .verdict.maybe    { color: var(--warn); border-color: var(--warn); }
+  .verdict.safe     { color: var(--good); border-color: var(--good); }
+  .eta-block {
+    background: #f4eff5; border-left: 4px solid var(--accent);
+    padding: 12px 16px; border-radius: 4px; margin: 12px 0 16px;
+  }
+  .eta-block code { font-size: 1.1em; }
+  ul.next { padding-left: 1.2em; }
+  ul.next li { margin-bottom: 6px; }
+  .footer {
+    color: var(--muted); font-size: 0.85rem; margin-top: 28px;
+  }
+  a { color: var(--accent); }
+  .pill {
+    display: inline-block; background: var(--bg); border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Are you affected by Slack's 1&nbsp;req/min rate limit?</h1>
+  <p class="lede">
+    Slack throttled <code>conversations.history</code> and
+    <code>conversations.replies</code> to <strong>1 request/minute, 15
+    messages per request</strong> for non-Marketplace apps. New installs:
+    May&nbsp;29,&nbsp;2025. Existing installs: March&nbsp;3,&nbsp;2026.
+    Answer four questions to see if this hits you, and what to do about it.
+  </p>
+
+  <form id="q">
+    <div class="card">
+      <h2>1. What kind of Slack app are you running?</h2>
+      <div class="options">
+        <label class="opt"><input type="radio" name="app_type" value="marketplace"><span><strong>Listed on the Slack Marketplace</strong><small>Approved through the Marketplace review process.</small></span></label>
+        <label class="opt"><input type="radio" name="app_type" value="internal"><span><strong>Internal: only my own workspace uses it</strong><small>"Internal customer-built" in Slack's terms.</small></span></label>
+        <label class="opt"><input type="radio" name="app_type" value="unlisted" checked><span><strong>Unlisted, but used by other workspaces</strong><small>You distribute it to customers via Add-to-Slack but it's not in the Marketplace.</small></span></label>
+        <label class="opt"><input type="radio" name="app_type" value="unsure"><span><strong>I'm not sure</strong></span></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Which token are you using?</h2>
+      <div class="options">
+        <label class="opt"><input type="radio" name="token" value="bot" checked><span><strong>Bot token (<code>xoxb-…</code>)</strong><small>Most apps.</small></span></label>
+        <label class="opt"><input type="radio" name="token" value="user"><span><strong>User token (<code>xoxp-…</code>)</strong><small>Acts as a specific user. Different rate-limit class.</small></span></label>
+        <label class="opt"><input type="radio" name="token" value="legacy"><span><strong>Legacy/personal token</strong><small>An admin or a user generated it manually.</small></span></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Roughly how many messages do you need to pull?</h2>
+      <div class="row">
+        <div>
+          <input type="number" id="messages" value="50000" min="1" step="1000">
+          <small style="color:var(--muted)">Total across all channels in the backfill.</small>
+        </div>
+        <div>
+          <input type="number" id="channels" value="1" min="1" step="1">
+          <small style="color:var(--muted)"># of channels.</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4. Over what date range?</h2>
+      <div class="row">
+        <div>
+          <input type="text" id="since" value="2024-01-01" placeholder="YYYY-MM-DD">
+          <small style="color:var(--muted)">Earliest date you need.</small>
+        </div>
+        <div>
+          <input type="text" id="until" value="" placeholder="YYYY-MM-DD (blank = today)">
+          <small style="color:var(--muted)">Latest date.</small>
+        </div>
+      </div>
+    </div>
+
+    <button type="submit">Tell me</button>
+  </form>
+
+  <div id="result" class="card">
+    <p id="verdict" class="verdict"></p>
+    <div id="eta" class="eta-block"></div>
+    <h3 style="margin:18px 0 6px;">What to do</h3>
+    <ul id="next" class="next"></ul>
+
+    <div class="footer">
+      <span class="pill">Source</span> Slack docs:
+      <a href="https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/" target="_blank" rel="noopener">Rate limit changes for non-Marketplace apps</a>.
+      This page runs entirely in your browser; nothing is sent anywhere.
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById("q");
+  const out = document.getElementById("result");
+  const verdictEl = document.getElementById("verdict");
+  const etaEl = document.getElementById("eta");
+  const nextEl = document.getElementById("next");
+
+  function radio(name) {
+    const el = form.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : null;
+  }
+
+  function parseDate(s) {
+    if (!s) return new Date();
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+    if (!m) return null;
+    return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  }
+
+  function fmtDuration(seconds) {
+    if (seconds < 90) return Math.round(seconds) + "s";
+    const m = Math.round(seconds / 60);
+    if (m < 90) return m + " min";
+    const h = m / 60;
+    if (h < 36) return h.toFixed(1) + " h";
+    return (h / 24).toFixed(1) + " days";
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const appType = radio("app_type");
+    const token = radio("token");
+    const messages = Math.max(1, parseInt(document.getElementById("messages").value || "0", 10));
+    const channels = Math.max(1, parseInt(document.getElementById("channels").value || "1", 10));
+    const sinceD = parseDate(document.getElementById("since").value);
+    const untilRaw = document.getElementById("until").value;
+    const untilD = untilRaw ? parseDate(untilRaw) : new Date();
+    if (!sinceD || !untilD) {
+      alert("Please use YYYY-MM-DD for dates.");
+      return;
+    }
+    const spanDays = Math.max(1, Math.round((untilD - sinceD) / 86400000));
+
+    // 1 req/min, 15 msgs/req. Worst-case time to drain N messages:
+    const pages = Math.ceil(messages / 15);
+    const drainSeconds = pages * 60; // per workspace, per route
+
+    // Windows: 1 per channel × ceil(days / 7) windows
+    const windows = channels * Math.max(1, Math.ceil(spanDays / 7));
+    const floorSeconds = windows * 60;
+
+    const etaSeconds = Math.max(drainSeconds, floorSeconds);
+
+    // Verdict
+    let v = "safe", vText = "", advice = [];
+
+    if (appType === "marketplace") {
+      v = "safe";
+      vText = "You're on Tier-3 limits, not 1 req/min.";
+      advice.push("Marketplace apps keep the older Tier-3 rate limits. You don't need this tool.");
+      advice.push("Stay on top of the docs in case Slack changes Tier-3 itself.");
+    } else if (appType === "internal") {
+      v = "safe";
+      vText = "Internal customer-built apps aren't affected.";
+      advice.push("Slack's change explicitly carves out internal apps. No action needed.");
+      advice.push("If you ever distribute the app to other workspaces, this changes.");
+    } else if (token === "user") {
+      v = "maybe";
+      vText = "User tokens aren't restricted the same way.";
+      advice.push("For self-service local archives, <a href=\"https://github.com/rusq/slackdump\">slackdump</a> is the standard tool.");
+      advice.push("If you're shipping a product that asks end users for their own xoxp tokens, that's a security/UX hurdle; most products can't go this route.");
+    } else if (appType === "unsure") {
+      v = "maybe";
+      vText = "Probably affected, but worth verifying.";
+      advice.push("Check your app's <em>App Directory</em> status: api.slack.com → Your Apps → Distribution.");
+      advice.push("If \"Public Distribution\" is on and you're not listed on the Marketplace, you're in the 1 rpm bucket.");
+    } else {
+      v = "affected";
+      vText = "Yes, you're in the 1 req/min bucket.";
+      advice.push("<strong>Run <a href=\"https://github.com/rozetyp/slack-shield\">slack-shield</a></strong> for the backfill. It handles windowing, checkpoints, and 429s for you.");
+      advice.push("If the app could realistically clear Marketplace review, that path restores Tier-3 limits and is the real fix.");
+      advice.push("If your customers can run a script themselves with their own user token, point them at <a href=\"https://github.com/rusq/slackdump\">slackdump</a> instead.");
+    }
+
+    verdictEl.className = "verdict " + v;
+    verdictEl.innerHTML = vText;
+
+    if (v === "affected" || (appType === "unsure" && token !== "user")) {
+      etaEl.innerHTML =
+        "<strong>Floor ETA for your range:</strong> " +
+        "<code>" + fmtDuration(etaSeconds) + "</code> " +
+        "(" + windows + " windows × 1 min, or " + pages + " pages × 1 min, whichever is larger).<br>" +
+        "<small>Real time will be higher if Slack issues longer Retry-After values or channels paginate heavily.</small>";
+      etaEl.style.display = "block";
+    } else {
+      etaEl.style.display = "none";
+    }
+
+    nextEl.innerHTML = advice.map(function (a) { return "<li>" + a + "</li>"; }).join("");
+    out.style.display = "block";
+    out.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+})();
+</script>
+</body>
+</html>
