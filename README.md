@@ -67,17 +67,32 @@ last checkpointed page. No flags needed.
 
 ## What you'll see
 
+Real captured output from a 3-window backfill against a test workspace.
+Note the exactly-60-second gaps between HTTP requests, which is the
+limiter doing its job.
+
 ```
-$ slack-shield backfill --channel C0123456 --since 2024-01-01 --until 2024-06-01
-14:02:11  window 1/22  2024-01-01 → 2024-01-08
-14:02:11  done 1/22  msgs=14  eta≈21m
-14:03:11  window 2/22  2024-01-08 → 2024-01-15
-14:03:11  done 2/22  msgs=29  eta≈20m
-14:04:11  window 3/22  2024-01-15 → 2024-01-22
+$ slack-shield backfill --channel C0B3A580679 --since 2026-05-06 --until 2026-05-15 --window-days 3
+09:53:31  window 1/3  2026-05-06 to 2026-05-09
+09:53:31  HTTP Request: GET https://slack.com/api/conversations.history... "200 OK"
+09:53:31  done 1/3  msgs=0  eta=2m
+09:53:31  window 2/3  2026-05-09 to 2026-05-12
+09:54:31  HTTP Request: GET https://slack.com/api/conversations.history... "200 OK"
+09:54:31  done 2/3  msgs=0  eta=1m
+09:54:31  window 3/3  2026-05-12 to 2026-05-15
+09:55:31  HTTP Request: GET https://slack.com/api/conversations.history... "200 OK"
+09:55:31  done 3/3  msgs=7  eta=0m
+
+finished. 7 messages -> social.jsonl
+```
+
+When Slack does return a 429, you'll see:
+
+```
 14:04:11  429: sleeping 47s as Slack requested
-14:04:58  done 3/22  msgs=44  eta≈19m
-...
 ```
+
+The next request fires exactly when `Retry-After` says it can.
 
 ## How long will it take?
 
@@ -128,29 +143,50 @@ The bot also needs to be a member of the channel
 If you see `not_in_channel` or `missing_scope`, `slack-shield` prints a
 short hint with the fix.
 
-## "Wait, isn't there a way around this?"
+## Why slack-shield (vs the alternatives)
 
-For most people, no. The exceptions worth knowing about:
+The Slack-history-out market is fragmented. Use the right tool for the
+job; this one is for a specific niche.
 
-- **Slack Marketplace apps** keep the higher Tier-3 limits. If your app is
-  productized and you can list it, do that.
-- **User tokens** aren't restricted the same way. If your use case lets the
-  end user paste their own personal token (e.g. local archives,
-  self-service exports), use [slackdump](https://github.com/rusq/slackdump);
-  it's been doing this for years.
-- **Enterprise Grid Discovery API** exists if your customer is a Grid org.
-  Different commercial path.
-- **Workspace admin ZIP exports** work for one-off offline archives but
-  not for ongoing programmatic access.
+| Your situation | Use this |
+| -------------- | -------- |
+| Building a Slack app, just want sane retries on 429 | The official [`slack_sdk`](https://github.com/slackapi/python-slack-sdk) (its `RetryHandler` covers Tier-3 cases) |
+| Personal/local archive of your own workspace, you have admin access | [`slackdump`](https://github.com/rusq/slackdump). It uses a user token and isn't rate-limited the same way. Faster. |
+| Full Slack-to-Teams/Mattermost migration with files, channel mapping, threading | Managed services: CloudFuze, Cloudiway, 21b. Project-priced, $5k+ |
+| Want Slack data in a data warehouse for analytics | An ETL platform: Airbyte (OSS), Fivetran (paid). They hit the same rate limit but solve "into BigQuery" for you. |
+| Compliance archive / eDiscovery / legal hold | Pagefreezer, Onna, Archive360, ViewExport |
+| Enterprise AI search over Slack | Glean (Tier-1 only, ~$50/user/month) |
+| **You ship a product with a bot/app token, an unlisted Slack app, and need to back-fill a customer's history under the new 1 rpm limit, with state and resume, and zero infrastructure** | **slack-shield** |
 
-This tool exists for the case where none of those apply: you ship a
-product that uses a bot/app token to pull Slack history on behalf of
-other workspaces, and you can't list on Marketplace yet.
+The last row is the niche. The official SDKs retry but don't slice
+windows or checkpoint. Slackdump needs a user token, which you can't
+ask paying customers to paste. Migration vendors charge five figures
+for a turnkey project. ETL platforms cost monthly and aren't designed
+for one-shot per-customer back-fills. slack-shield is one `pip
+install`, runs on a laptop, and does the boring middle: walk the API
+slowly, save your place, resume on crash.
+
+If your situation matches one of the other rows, save yourself the
+trouble and use that tool. If it matches the last row, keep reading.
+
+### What if I could just list on the Marketplace?
+
+Do it. That restores the older Tier-3 limits and removes the whole
+problem. slack-shield is for the period before that happens (the
+review can take weeks), or for cases where Marketplace listing isn't
+realistic.
 
 ## Status
 
-`v0.1.0`. Used in earnest. Public API and CLI flags may change between
-0.x releases. Pin if you depend on it.
+`v0.1.0`. Verified against a live Slack workspace on 2026-05-14:
+authentication, the 1 req/min pacing between requests, cursor
+pagination across pages, multi-window walks, state checkpoints, and
+resume from an interrupted run all behaved as documented. 28 pytest
+tests cover the components in isolation, including the 429 +
+`Retry-After` path and the adaptive-shrink path.
+
+Public API and CLI flags may change between 0.x releases. Pin if you
+depend on it.
 
 ## License
 
