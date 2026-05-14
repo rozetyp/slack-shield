@@ -10,3 +10,8 @@ build/
 *.csv
 *.jsonl
 .DS_Store
+
+# private working notes, never push
+NOTES.md
+SCRATCH.md
+.notes/
