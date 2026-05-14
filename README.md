@@ -11,7 +11,8 @@ library + CLI that does the only sane thing under that constraint: a
 time-windowed, checkpointed, resumable backfill that honors `Retry-After`
 and survives reboots.
 
-[See if your Slack app is affected →](docs/affected.html)
+**Project page:** https://rozetyp.github.io/slack-shield/  
+[See if your Slack app is affected →](https://rozetyp.github.io/slack-shield/affected.html)
 
 ## What it does
 

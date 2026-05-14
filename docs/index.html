@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>slack-shield: Slack history backfill under 1 req/min</title>
+<meta name="description" content="A small Python library and CLI for backfilling Slack channel history from an unlisted/non-Marketplace app under the 1 req/min, 15 msg/req rate limit.">
+<meta property="og:title" content="slack-shield">
+<meta property="og:description" content="Slack history backfill that respects the 1 req/min rate limit for unlisted apps.">
+<meta property="og:type" content="website">
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --muted: #666;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e3e3e3;
+    --accent: #4a154b;
+    --code-bg: #f3f3f5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+  }
+  .container { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 2.1rem; margin: 0 0 0.3em; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); font-size: 1.05rem; margin: 0 0 2em; }
+  h2 { font-size: 1.15rem; margin: 2em 0 0.6em; }
+  p, ul { margin: 0 0 1em; }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+  code, pre {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    border-radius: 4px;
+  }
+  code { padding: 1px 5px; font-size: 0.92em; }
+  pre { padding: 14px 16px; overflow-x: auto; font-size: 0.88rem; line-height: 1.5; }
+  .cta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 1.5em 0 2em;
+  }
+  .cta a {
+    display: block;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--fg);
+  }
+  .cta a:hover { border-color: var(--accent); }
+  .cta strong { display: block; color: var(--accent); margin-bottom: 2px; }
+  .cta small { color: var(--muted); }
+  @media (max-width: 540px) { .cta { grid-template-columns: 1fr; } }
+  .footer { color: var(--muted); font-size: 0.85rem; margin-top: 3em; }
+  .pill {
+    display: inline-block;
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  .table-compact {
+    border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0.5em 0 1.2em;
+  }
+  .table-compact th, .table-compact td {
+    text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border);
+  }
+  .table-compact th { font-weight: 600; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>slack-shield</h1>
+  <p class="lede">
+    A small Python library and CLI for backfilling Slack channel
+    history from an unlisted (non-Marketplace) Slack app under the
+    1&nbsp;req/min, 15-msg/req rate limit. Resumable, checkpointed,
+    zero infrastructure. MIT.
+  </p>
+
+  <div class="cta">
+    <a href="https://github.com/rozetyp/slack-shield">
+      <strong>Source on GitHub →</strong>
+      <small>Code, install, issues, releases.</small>
+    </a>
+    <a href="affected.html">
+      <strong>Am I affected? →</strong>
+      <small>30-second diagnostic. Pure browser, nothing sent anywhere.</small>
+    </a>
+    <a href="https://github.com/rozetyp/slack-shield/blob/main/docs/BLOGPOST.md">
+      <strong>How it works (deep dive) →</strong>
+      <small>~1,200-word write-up on the rate limit and the design.</small>
+    </a>
+    <a href="https://github.com/rozetyp/slack-shield#install">
+      <strong>Install &amp; quickstart →</strong>
+      <small>pip install, three CLI commands.</small>
+    </a>
+  </div>
+
+  <h2>The problem in one paragraph</h2>
+  <p>
+    Since <strong>May 29, 2025</strong>, Slack throttles
+    <code>conversations.history</code> and
+    <code>conversations.replies</code> to <strong>1 request per
+    minute, max 15 messages per request</strong> for any
+    commercially-distributed Slack app not listed on the Slack
+    Marketplace. Existing installs switch over on <strong>March 3,
+    2026</strong>. That's <strong>21,600 messages/channel/day</strong>
+    at peak. A busy customer channel with half a million messages
+    becomes a <strong>23-day backfill</strong>. There's no clever way
+    around the ceiling; Slack means it.
+  </p>
+
+  <h2>What slack-shield does</h2>
+  <ul>
+    <li>One request per minute per <code>(workspace, route)</code>, exactly what Slack asks.</li>
+    <li>Honors <code>Retry-After</code> on every 429 (no fixed 60s sleep).</li>
+    <li>Walks the channel in time windows (default 7 days), paginates with <code>limit=15</code>, halves future windows when pagination gets heavy.</li>
+    <li>Checkpoints state after <em>every successful page</em>, so Ctrl-C / OOM / reboot resumes where it left off.</li>
+    <li>Writes messages as JSONL (one raw Slack message per line). Convert to CSV with <code>slack-shield to-csv</code> when done.</li>
+    <li>Zero infrastructure. No Redis, no Postgres, no Docker.</li>
+  </ul>
+
+  <h2>Use the right tool for your job</h2>
+  <table class="table-compact">
+    <thead>
+      <tr><th>Your situation</th><th>Use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Need sane 429 retries in a regular Slack app</td><td><a href="https://github.com/slackapi/python-slack-sdk">slack_sdk</a> (official)</td></tr>
+      <tr><td>Personal/local archive with a user token</td><td><a href="https://github.com/rusq/slackdump">slackdump</a></td></tr>
+      <tr><td>Full Slack→Teams/Mattermost migration with files, channel mapping</td><td>CloudFuze, Cloudiway, 21b ($5k+)</td></tr>
+      <tr><td>Slack data into a warehouse</td><td>Airbyte, Fivetran</td></tr>
+      <tr><td>Compliance archive / eDiscovery</td><td>Pagefreezer, Onna, Archive360, ViewExport</td></tr>
+      <tr><td>Enterprise AI search over Slack</td><td>Glean ($50/user/mo, 100-seat min)</td></tr>
+      <tr><td><strong>Bot/app token, unlisted Slack app, need to back-fill a customer's history under the 1 rpm limit, with state and resume, zero infra</strong></td><td><strong>slack-shield</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Status</h2>
+  <p>
+    <code>v0.1.0</code>. Verified live against a real Slack workspace
+    on 2026-05-14: auth, the 1 req/min pacing between requests, cursor
+    pagination across pages, multi-window walk, state checkpoints, and
+    resume from an interrupted run all behaved as documented. 28
+    pytest tests cover the components in isolation, including the
+    429&nbsp;+&nbsp;<code>Retry-After</code> path and the
+    adaptive-shrink path.
+  </p>
+
+  <p class="footer">
+    <span class="pill">MIT</span>
+    <span class="pill">Python 3.10+</span>
+    <span class="pill">httpx</span>
+    &nbsp;Built by <a href="https://github.com/rozetyp">@rozetyp</a>.
+    Issues and PRs welcome at
+    <a href="https://github.com/rozetyp/slack-shield">the repo</a>.
+  </p>
+</div>
+</body>
+</html>
